@@ -10,22 +10,21 @@ from HCM_temp_forcast.prepare import basic_clean
 from HCM_temp_forcast.data import load_from_parquet
 
 try:
-    from scripts.fetch import incremental_fetch_via_xlsx 
+    from scripts.fetch import incremental_fetch_via_xlsx
 except Exception:
-    incremental_fetch_via_xlsx = None  
+    incremental_fetch_via_xlsx = None
 
 # ================== CONFIG ==================
 DATA_PATH    = "data/weather.parquet"
-ARTIFACT_DIR = "artifacts"
+ARTIFACT_DIR = "artifacts_114"     # khớp với scripts/tune.py mới
 HORIZONS     = (1, 2, 3, 4, 5)
-LAGS         = (1, 2, 3, 7, 14)
-ROLLS        = (7, 14)
 DATE_COL     = "datetime"
 TRUTH_COL    = "temp"
 DECIMALS     = 1
 # ============================================
 
 _df_clean_cache = None
+
 
 def _load_clean_data() -> pd.DataFrame:
     global _df_clean_cache
@@ -40,13 +39,19 @@ def _load_clean_data() -> pd.DataFrame:
     _df_clean_cache = df
     return df
 
+
 def _default_current_date_str() -> str:
     df = _load_clean_data()
     last_dt = pd.to_datetime(df[DATE_COL]).max().date() if not df.empty else date.today()
     return last_dt.isoformat()
 
-def _render_cards_html(df_cards: pd.DataFrame, data_range: tuple[date, date], current_date: str, fetched_note: str = "") -> str:
-    # Light theme CSS
+
+def _render_cards_html(
+    df_cards: pd.DataFrame,
+    data_range: tuple[date, date],
+    current_date: str,
+    fetched_note: str = ""
+) -> str:
     css = """
     <style>
     .wx-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-top:12px}
@@ -71,7 +76,7 @@ def _render_cards_html(df_cards: pd.DataFrame, data_range: tuple[date, date], cu
     .wx-hbar{display:flex; gap:8px; align-items:center; color:#475569; font-size:13px}
     .wx-hbar b{color:#0f172a}
     .wx-fetch{font-size:12px; color:#16a34a; margin-top:4px}
-    .wx-fetch.err{color:#dc2626}
+    .wx-fetch .err{color:#dc2626}
     </style>
     """
     dr_min, dr_max = data_range
@@ -115,15 +120,17 @@ def _render_cards_html(df_cards: pd.DataFrame, data_range: tuple[date, date], cu
     grid = f'<div class="wx-grid">{"".join(cards_html)}</div>'
     return css + head + grid
 
+
 def predict(current_date_str: str):
     global _df_clean_cache
     fetched_note = ""
 
+    # thử fetch incremental nếu có
     if incremental_fetch_via_xlsx is not None:
         try:
             incremental_fetch_via_xlsx()
-            fetched_note = ""
-            _df_clean_cache = None  
+            fetched_note = ""  # có thể thêm message nếu muốn
+            _df_clean_cache = None
         except Exception as e:
             fetched_note = f'<span class="err">Không fetch được dữ liệu mới ({e}). Dùng dữ liệu hiện có.</span>'
 
@@ -138,25 +145,26 @@ def predict(current_date_str: str):
         except Exception:
             return gr.update(value="<b>❌ Ngày không hợp lệ.</b>")
 
-        if cur < dt_min:
+        if dt_min is not None and cur < dt_min:
             return gr.update(value=f"<b>❌</b> Ngày gốc {cur} < min date trong dữ liệu ({dt_min}).")
-        if cur > dt_max:
+        if dt_max is not None and cur > dt_max:
             return gr.update(value=f"<b>❌</b> Ngày gốc {cur} > max date trong dữ liệu ({dt_max}). Hãy fetch dữ liệu mới trước.")
 
+        # FE mới đã cố định spec lags/rolling bên trong infer,
+        # nên ở đây chỉ cần truyền df, horizons, không cần LAGS/ROLLS nữa.
         out = forecast_next_5_days(
             df_recent=df,
             current_date=cur,
             artifact_dir=ARTIFACT_DIR,
             horizons=HORIZONS,
-            lags=LAGS,
-            roll_windows=ROLLS,
-            df_truth=df,             
+            df_truth=df,
             date_col=DATE_COL,
             truth_col=TRUTH_COL,
         )
 
         cols = ["horizon_days", "target_date", "pred_temp"]
-        if "gt_temp" in out.columns: cols += ["gt_temp", "abs_error"]
+        if "gt_temp" in out.columns:
+            cols += ["gt_temp", "abs_error"]
         disp = out[cols].copy()
 
         html = _render_cards_html(disp, (dt_min, dt_max), cur, fetched_note=fetched_note)
@@ -170,6 +178,7 @@ def predict(current_date_str: str):
         return gr.update(value=f"<b>❌ Lỗi:</b> {ve}")
     except Exception as e:
         return gr.update(value=f"<b>❌ Lỗi bất ngờ:</b> {e}")
+
 
 # ----------------- Gradio UI -----------------
 theme = gr.themes.Soft(

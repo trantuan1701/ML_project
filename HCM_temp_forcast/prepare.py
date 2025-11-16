@@ -1,4 +1,4 @@
-# htf/prepare.py
+# HCM_temp_forcast/prepare.py
 from __future__ import annotations
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ from HCM_temp_forcast.data import load_from_parquet
 # ====== cấu hình mặc định ======
 TIME_COLS_DEFAULT = ("datetime", "sunrise", "sunset")
 TEXT_COLS_DEFAULT = ["conditions", "icon", "description"]
-DROP_ALWAYS = ["stations", "severerisk"]
+DROP_ALWAYS = ["stations", "severerisk", "name", "solarenergy"]
 
 # Các cột số cốt lõi dùng nhiều trong FE (để drop NaN nếu muốn “sạch tuyệt đối”)
 CORE_NUMERIC_COLS = [
@@ -146,13 +146,24 @@ def time_split_train_test(
 def feature_engineer_timeseries(
     df: pd.DataFrame,
     *,
-    lags: Iterable[int] = (1, 2, 3, 7, 14),
-    roll_windows: Iterable[int] = (7, 14),
+    lags: Iterable[int] = (1, 2, 3, 7, 14),   # giữ để tương thích, không dùng trực tiếp
+    roll_windows: Iterable[int] = (7, 14),    # giữ để tương thích, không dùng trực tiếp
     horizon: int = 1,
     drop_original_astro: bool = True,
     drop_datetime_cols: bool = True,
     make_target: bool = True
 ) -> pd.DataFrame:
+    """
+    Feature engineering cho daily weather time series, theo spec:
+
+    - Lag & rolling riêng cho từng biến (temp, tempmax, tempmin, humidity, dew, pressure, precip, v.v.)
+    - Winddir (deg) -> rad, tạo u/v, wind_proficiency.
+    - Temporal, domain, interaction features như đã thiết kế.
+    - Rolling windows là trailing, KHÔNG shift(1), vì target là temp_{t+1}.
+
+    Đã tối ưu để tránh DataFrame fragmentation: tất cả cột mới được gom vào dict
+    `new_cols` rồi concat một lần.
+    """
     d = df.copy()
 
     # 0) Chuẩn dtype thời gian
@@ -160,71 +171,307 @@ def feature_engineer_timeseries(
         if c in d.columns and not pd.api.types.is_datetime64_any_dtype(d[c]):
             d[c] = pd.to_datetime(d[c], errors="coerce")
 
-    # Bảo đảm loại moonphase / winddir nếu còn
-    for c in ["moonphase", "winddir"]:
-        if c in d.columns:
-            d.drop(columns=[c], inplace=True)
-
-    # 1) Calendar / cyclical
     if "datetime" not in d.columns:
         raise ValueError("Thiếu cột 'datetime' trước FE.")
-    d["year"]      = d["datetime"].dt.year
-    d["month"]     = d["datetime"].dt.month
-    d["day"]       = d["datetime"].dt.day
-    d["dayofweek"] = d["datetime"].dt.dayofweek
-    d["dayofyear"] = d["datetime"].dt.dayofyear
-    d["sin_doy"]   = np.sin(2 * np.pi * d["dayofyear"] / 365.25)
-    d["cos_doy"]   = np.cos(2 * np.pi * d["dayofyear"] / 365.25)
 
-    # 2) Astronomical / daylight
+    # Dict chứa tất cả feature mới
+    new_cols: Dict[str, pd.Series] = {}
+
+    # 1) Temporal / calendar features
+    month = d["datetime"].dt.month
+    doy   = d["datetime"].dt.dayofyear
+    dow   = d["datetime"].dt.dayofweek
+
+    new_cols["feature_Month"]      = month
+    new_cols["feature_DayOfYear"]  = doy
+    new_cols["feature_DayOfWeek"]  = dow
+    new_cols["feature_IsWeekend"]  = dow.isin([5, 6]).astype(int)
+
+    new_cols["feature_Month_sin"]     = np.sin(2 * np.pi * month / 12.0)
+    new_cols["feature_Month_cos"]     = np.cos(2 * np.pi * month / 12.0)
+    new_cols["feature_DayOfYear_sin"] = np.sin(2 * np.pi * doy / 366.0)
+    new_cols["feature_DayOfYear_cos"] = np.cos(2 * np.pi * doy / 366.0)
+
+    if "has_rain" in d.columns:
+        new_cols["feature_Has_Rain"] = d["has_rain"]
+
+    # Daylight duration (giờ)
     if {"sunrise", "sunset"}.issubset(d.columns):
-        d["daylength_min"] = (d["sunset"] - d["sunrise"]).dt.total_seconds() / 60.0
-        d["sunrise_min"]   = d["sunrise"].dt.hour * 60 + d["sunrise"].dt.minute
-        d["sunset_min"]    = d["sunset"].dt.hour  * 60 + d["sunset"].dt.minute
+        dur_hours = (d["sunset"] - d["sunrise"]).dt.total_seconds() / 3600.0
+        new_cols["feature_Daylight_Duration"] = dur_hours
 
-    # 3) Lags & Rolling (past-only)
-    lag_vars = [
-        "temp", "humidity", "dew", "cloudcover", "windspeed",
-        "sealevelpressure", "precip", "precipcover",
-        "solarradiation", "solarenergy", "uvindex", "has_rain"
-    ]
-    lag_vars = [c for c in lag_vars if c in d.columns]
+    # Mùa mưa: 1 nếu tháng 5..11
+    new_cols["feature_Is_RainySeason"] = month.between(5, 11).astype(int)
 
-    for k in lags:
-        for col in lag_vars:
-            d[f"{col}_lag{k}"] = d[col].shift(k)
+    # 2) Wind direction & components
+    if "winddir" in d.columns:
+        winddir_deg = pd.to_numeric(d["winddir"], errors="coerce")
+        winddir_rad = np.deg2rad(winddir_deg)
+    else:
+        winddir_rad = pd.Series(np.nan, index=d.index)
 
-    for w in roll_windows:
-        if "temp" in d.columns:
-            d[f"temp_roll{w}_mean"] = d["temp"].shift(1).rolling(w, min_periods=w).mean()
-            d[f"temp_roll{w}_std"]  = d["temp"].shift(1).rolling(w, min_periods=w).std()
-        if "has_rain" in d.columns:
-            d[f"has_rain_roll{w}_sum"] = d["has_rain"].shift(1).rolling(w, min_periods=w).sum()
-        for v in ["humidity", "cloudcover", "windspeed"]:
-            if v in d.columns:
-                d[f"{v}_roll{w}_mean"] = d[v].shift(1).rolling(w, min_periods=w).mean()
+    new_cols["winddir_rad"] = winddir_rad
 
-    # 4) Drop astro gốc / datetime nếu muốn
+    if "windspeed" in d.columns:
+        ws = pd.to_numeric(d["windspeed"], errors="coerce")
+        new_cols["wind_u"] = ws * np.sin(winddir_rad)   # Đông - Tây
+        new_cols["wind_v"] = ws * np.cos(winddir_rad)   # Bắc - Nam
+        new_cols["wind_proficiency"] = np.sin(winddir_rad - np.pi / 2.0) * ws
+    else:
+        ws = None  # đề phòng dùng ws phía sau
+
+    # 2.5) EWMA (exponentially weighted mean) – chọn lọc
+    if "temp" in d.columns:
+        temp_num = pd.to_numeric(d["temp"], errors="coerce")
+        new_cols["temp_ewm7"] = (
+            temp_num.ewm(span=7, min_periods=7, adjust=False).mean()
+        )
+        new_cols["temp_ewm30"] = (
+            temp_num.ewm(span=30, min_periods=30, adjust=False).mean()
+        )
+
+    if "humidity" in d.columns:
+        hum_num = pd.to_numeric(d["humidity"], errors="coerce")
+        new_cols["humidity_ewm7"] = (
+            hum_num.ewm(span=7, min_periods=7, adjust=False).mean()
+        )
+
+    if "precip" in d.columns:
+        pr_num = pd.to_numeric(d["precip"], errors="coerce")
+        new_cols["precip_ewm7"] = (
+            pr_num.ewm(span=7, min_periods=7, adjust=False).mean()
+        )
+
+
+    # 3) Lag specifications (variable-specific)
+    lag_spec: Dict[str, List[int]] = {
+        # Temp, TempMax, TempMin
+        "temp":             [1, 2, 3, 7],
+        # "tempmax":          [1, 2, 3, 7],
+        # "tempmin":          [1, 2, 3, 7],
+        # Humidity, Dew
+        "humidity":         [1, 2, 3],
+        # "dew":              [1, 2, 3],
+        # Sealevel Pressure
+        "sealevelpressure": [1],
+        # precip
+        "precip":           [1, 2, 3],
+        # cloudcover
+        "cloudcover":       [1, 2, 3],
+        # solarradiation
+        "solarradiation":   [1, 2, 3],
+        # solarenergy
+        # "solarenergy":      [1, 2, 3],
+        # uvindex
+        # "uvindex":          [1, 2, 3],
+        # windspeed
+        "windspeed":        [1, 2, 5],
+        # windgust
+        "windgust":         [1, 2, 5],
+    }
+
+    def _get_series_for(col: str) -> Optional[pd.Series]:
+        if col in d.columns:
+            return pd.to_numeric(d[col], errors="coerce")
+        if col in new_cols:
+            return pd.to_numeric(new_cols[col], errors="coerce")
+        return None
+
+    for col, ks in lag_spec.items():
+        s = _get_series_for(col)
+        if s is None:
+            continue
+        for k in ks:
+            new_cols[f"{col}_lag{k}"] = s.shift(k)
+
+    # 4) Rolling statistics (trailing, bao gồm cả ngày t)
+    mean_spec: Dict[str, List[int]] = {
+        "temp":             [3, 7, 14, 30],
+        # "tempmax":          [3, 7, 14, 30],
+        # "tempmin":          [3, 7, 14, 30],
+        "humidity":         [3, 7],
+        # "dew":              [3, 7],
+        "sealevelpressure": [3, 7],
+        "precip":           [2, 3, 5, 7],
+        "cloudcover":       [2, 7, 14],
+        "solarradiation":   [2, 7, 14],
+        # "solarenergy":      [14, 30],
+        # "uvindex":          [7, 14, 30],
+        "windspeed":        [3, 7, 14],
+        "windgust":         [3, 7, 14],
+        "wind_u":           [7],
+        "wind_v":           [7],
+    }
+
+    std_spec: Dict[str, List[int]] = {
+        "temp":             [7, 14],
+        # "tempmax":          [7, 14],
+        # "tempmin":          [7, 14],
+        "humidity":         [7],
+        # "dew":              [7],
+        "sealevelpressure": [7, 30],
+        "precip":           [3, 5, 7],
+        "cloudcover":       [3, 7],
+        "solarradiation":   [3, 7, 14],
+        # "solarenergy":      [7, 14],
+        # "uvindex":          [7, 14],
+    }
+
+    max_spec: Dict[str, List[int]] = {
+        "windgust":         [3, 7, 14],
+    }
+
+    def _roll_trailing(col: str, window: int, stat: str) -> Optional[pd.Series]:
+        s = _get_series_for(col)
+        if s is None:
+            return None
+        r = s.rolling(window, min_periods=window)
+        if stat == "mean":
+            return r.mean()
+        if stat == "std":
+            return r.std()
+        if stat == "max":
+            return r.max()
+        raise ValueError(f"Unsupported stat={stat}")
+
+    for col, ws_list in mean_spec.items():
+        for w in ws_list:
+            res = _roll_trailing(col, w, "mean")
+            if res is not None:
+                new_cols[f"{col}_roll{w}_mean"] = res
+
+    for col, ws_list in std_spec.items():
+        for w in ws_list:
+            res = _roll_trailing(col, w, "std")
+            if res is not None:
+                new_cols[f"{col}_roll{w}_std"] = res
+
+    for col, ws_list in max_spec.items():
+        for w in ws_list:
+            res = _roll_trailing(col, w, "max")
+            if res is not None:
+                new_cols[f"{col}_roll{w}_max"] = res
+
+    # 5) Domain & interaction features
+
+    # Num_Rain7Day
+    if "has_rain" in d.columns:
+        new_cols["Num_Rain7Day"] = (
+            pd.to_numeric(d["has_rain"], errors="coerce")
+            .rolling(7, min_periods=7)
+            .sum()
+        )
+
+    # domain_temp_range = tempmax - tempmin
+    if {"tempmax", "tempmin"}.issubset(d.columns):
+        new_cols["domain_temp_range"] = (
+            pd.to_numeric(d["tempmax"], errors="coerce")
+            - pd.to_numeric(d["tempmin"], errors="coerce")
+        )
+
+    # domain_dew_point_spread = temp - dew
+    if {"temp", "dew"}.issubset(d.columns):
+        new_cols["domain_dew_point_spread"] = (
+            pd.to_numeric(d["temp"], errors="coerce")
+            - pd.to_numeric(d["dew"], errors="coerce")
+        )
+
+    # domain_feelslike_diff = feelslike - temp
+    if {"feelslike", "temp"}.issubset(d.columns):
+        new_cols["domain_feelslike_diff"] = (
+            pd.to_numeric(d["feelslike"], errors="coerce")
+            - pd.to_numeric(d["temp"], errors="coerce")
+        )
+
+    # domain_pressure_change_1d = sealevelpressure - sealevelpressure_lag1
+    if "sealevelpressure" in d.columns and "sealevelpressure_lag1" in new_cols:
+        sp  = pd.to_numeric(d["sealevelpressure"], errors="coerce")
+        sp1 = pd.to_numeric(new_cols["sealevelpressure_lag1"], errors="coerce")
+        new_cols["domain_pressure_change_1d"] = sp - sp1
+
+    # domain_wind_power = windspeed^2
+    if "windspeed" in d.columns:
+        ws_num = pd.to_numeric(d["windspeed"], errors="coerce")
+        new_cols["domain_wind_power"] = ws_num ** 2
+
+    # domain_wind_gust_ratio = windgust / (windspeed + 1e-6)
+    if {"windgust", "windspeed"}.issubset(d.columns):
+        gust = pd.to_numeric(d["windgust"], errors="coerce")
+        ws_num = pd.to_numeric(d["windspeed"], errors="coerce")
+        new_cols["domain_wind_gust_ratio"] = gust / (ws_num + 1e-6)
+
+    # domain_cloud_radiation_interaction = solarradiation / (cloudcover + 1e-6)
+    if {"solarradiation", "cloudcover"}.issubset(d.columns):
+        rad = pd.to_numeric(d["solarradiation"], errors="coerce")
+        cc  = pd.to_numeric(d["cloudcover"], errors="coerce")
+        new_cols["domain_cloud_radiation_interaction"] = rad / (cc + 1e-6)
+
+    # inter_temp_x_humidity = temp_lag1 * humidity_lag1
+    if "temp_lag1" in new_cols and "humidity_lag1" in new_cols:
+        t1 = pd.to_numeric(new_cols["temp_lag1"], errors="coerce")
+        h1 = pd.to_numeric(new_cols["humidity_lag1"], errors="coerce")
+        new_cols["inter_temp_x_humidity"] = t1 * h1
+
+    # inter_humidity_x_dew = (2 - humidity) * dew
+    if {"humidity", "dew"}.issubset(d.columns):
+        hum = pd.to_numeric(d["humidity"], errors="coerce")
+        dew_ = pd.to_numeric(d["dew"], errors="coerce")
+        new_cols["inter_humidity_x_dew"] = (2 - hum) * dew_
+
+    # ratio_humidity_pressure = lag_humidity_1 / (lag_sealevelpressure_1 + 1e-6)
+    if "humidity_lag1" in new_cols and "sealevelpressure_lag1" in new_cols:
+        h1 = pd.to_numeric(new_cols["humidity_lag1"], errors="coerce")
+        p1 = pd.to_numeric(new_cols["sealevelpressure_lag1"], errors="coerce")
+        new_cols["ratio_humidity_pressure"] = h1 / (p1 + 1e-6)
+
+    # 6) Ghép tất cả feature mới vào DataFrame một lần
+    if new_cols:
+        features_df = pd.DataFrame(new_cols, index=d.index)
+        d = pd.concat([d, features_df], axis=1)
+        # copy() để defragment như warning gợi ý
+        d = d.copy()
+
+    # 7) Dọn cột astro / winddir nếu cần
+    if "moonphase" in d.columns:
+        d.drop(columns=["moonphase"], inplace=True)
+
     if drop_original_astro:
         for c in ["sunrise", "sunset"]:
             if c in d.columns:
                 d.drop(columns=[c], inplace=True)
+
+    if "winddir" in d.columns:
+        d.drop(columns=["winddir"], inplace=True)
+
+    # 8) Drop datetime-type columns nếu cần
     if drop_datetime_cols:
         dt_cols = [c for c in d.columns if pd.api.types.is_datetime64_any_dtype(d[c])]
         if dt_cols:
             d.drop(columns=dt_cols, inplace=True)
 
-    # 5) Cắt phần thiếu do lag/rolling
-    drop_n = max(max(lags) if lags else 0, max(roll_windows) if roll_windows else 0)
+    # 9) Cắt phần đầu bị thiếu do lag/rolling
+    all_lags = [k for ks in lag_spec.values() for k in ks]
+    all_rolls = (
+        [w for ws_ in mean_spec.values() for w in ws_] +
+        [w for ws_ in std_spec.values()  for w in ws_] +
+        [w for ws_ in max_spec.values()  for w in ws_]
+    )
+    max_lag  = max(all_lags) if all_lags else 0
+    max_roll = max(all_rolls) if all_rolls else 0
+    drop_n   = max(max_lag, max_roll)    # -> 30
+
     if drop_n > 0:
         d = d.iloc[drop_n:].reset_index(drop=True)
 
-    # 6) Target cho Direct
+    # 10) Target cho Direct: temp_{t+horizon}
     if make_target and "temp" in d.columns:
-        d["target_temp_tplus"] = d["temp"].shift(-horizon)
+        temp_series = pd.to_numeric(d["temp"], errors="coerce")
+        d["target_temp_tplus"] = temp_series.shift(-horizon)
         d = d.iloc[:-horizon].reset_index(drop=True)
 
     return d
+
+
 
 # ====== ghép khung feature train/test ======
 def select_feature_frame(
@@ -243,18 +490,36 @@ def make_direct_datasets_train_test(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     *,
-    horizons: Iterable[int] = (1,2,3,4,5),
-    lags: Iterable[int] = (1,2,3,7,14),
-    roll_windows: Iterable[int] = (7,14),
+    horizons: Iterable[int] = (1, 2, 3, 4, 5),
 ) -> Dict[int, Dict]:
+    """
+    Tạo dataset cho Direct Multi-horizon:
+    - Với mỗi horizon h, chạy feature_engineer_timeseries riêng trên train/test
+      (FE sử dụng cùng spec lags/rolling cố định).
+    - Target mặc định: 'target_temp_tplus'.
+    """
     out: Dict[int, Dict] = {}
     y_col = "target_temp_tplus"
+
     for h in horizons:
-        tr = feature_engineer_timeseries(train_df, lags=lags, roll_windows=roll_windows, horizon=h, make_target=True)
-        te = feature_engineer_timeseries(test_df,  lags=lags, roll_windows=roll_windows, horizon=h, make_target=True)
+        tr = feature_engineer_timeseries(
+            train_df,
+            horizon=h,
+            make_target=True
+        )
+        te = feature_engineer_timeseries(
+            test_df,
+            horizon=h,
+            make_target=True
+        )
         feat_cols, (X_tr, y_tr), (X_te, y_te) = select_feature_frame(tr, te, y_col)
-        out[h] = {"train": (X_tr, y_tr), "test": (X_te, y_te), "feature_cols": feat_cols}
+        out[h] = {
+            "train": (X_tr, y_tr),
+            "test": (X_te, y_te),
+            "feature_cols": feat_cols,
+        }
     return out
+
 
 # ====== audit / assert ======
 def audit_missing(df: pd.DataFrame, top_k: int = 20) -> Dict[str, Dict[str, int]]:
@@ -287,8 +552,6 @@ _DATA_PATH = "data/weather.parquet"
 _TRAIN_FRAC  = 0.80
 _GAP         = 14
 _HORIZONS    = (1, 2, 3, 4, 5)
-_LAGS        = (1, 2, 3, 7, 14)
-_ROLLS       = (7, 14)
 
 def _inspect_time_index(df: pd.DataFrame, dt_col: str = "datetime") -> None:
     """In thông tin phạm vi thời gian, ngày cuối cùng, số ngày thiếu / trùng."""
@@ -331,79 +594,15 @@ def _inspect_time_index(df: pd.DataFrame, dt_col: str = "datetime") -> None:
     print("==========================")
 
 
-def _summ_na_rate(df: pd.DataFrame) -> pd.Series:
-    return (df.isna().sum() / len(df)).sort_values(ascending=False)
-
-def inspect_new_vs_old_columns(
-    df_raw: pd.DataFrame,
-    *,
-    dt_col: str = "datetime",
-    last_k_days: int = 14,
-    baseline_days: int = 60,   # cửa sổ “cũ” để so sánh
-    show_top: int = 20
-):
-    d0 = df_raw.copy()
-    d0[dt_col] = pd.to_datetime(d0[dt_col], errors="coerce")
-    d0 = d0.sort_values(dt_col).reset_index(drop=True)
-
-    last_dt = pd.to_datetime(d0[dt_col].max()).normalize()
-    recent_cut = last_dt - pd.Timedelta(days=last_k_days-1)
-    base_end  = recent_cut - pd.Timedelta(days=1)
-    base_start= base_end - pd.Timedelta(days=baseline_days-1)
-
-    recent = d0[d0[dt_col] >= recent_cut]
-    base   = d0[(d0[dt_col] >= base_start) & (d0[dt_col] <= base_end)]
-
-    print(f"[NEW/OLD SPLIT] last_dt={last_dt.date()} | recent: >= {recent_cut.date()} (n={len(recent)}) | "
-          f"baseline: {base_start.date()}..{base_end.date()} (n={len(base)})")
-
-    # 1) Tỷ lệ NaN theo cột
-    na_recent = _summ_na_rate(recent)
-    na_base   = _summ_na_rate(base).reindex(na_recent.index).fillna(0)
-    delta = (na_recent - na_base).sort_values(ascending=False)
-
-    print("\n== Cột thiếu nhiều hơn ở NGÀY MỚI (delta NaN rate) ==")
-    df_delta = pd.DataFrame({
-        "na_recent_rate": na_recent,
-        "na_base_rate": na_base,
-        "delta_recent_minus_base": delta
-    }).sort_values("delta_recent_minus_base", ascending=False)
-    print(df_delta.head(show_top).round(3).to_string())
-
-    # 2) Những cột mà baseline hầu như đầy đủ (<5% NaN) nhưng recent trống nhiều (>50% NaN)
-    problematic = df_delta[(df_delta["na_base_rate"] <= 0.05) & (df_delta["na_recent_rate"] >= 0.50)]
-    if not problematic.empty:
-        print("\n== Cột baseline gần như đầy đủ nhưng recent thiếu nhiều (gợi ý nguyên nhân rụng hàng) ==")
-        print(problematic.sort_values("na_recent_rate", ascending=False).round(3).to_string())
-    else:
-        print("\n(no columns where baseline ~full but recent is very sparse)")
-
-    # 3) Thống kê nhanh min/max ở baseline vs recent cho các cột số
-    num_cols = [c for c in d0.columns if pd.api.types.is_numeric_dtype(d0[c])]
-    if num_cols:
-        def _minmax(df): 
-            return pd.DataFrame({"min": df[num_cols].min(), "max": df[num_cols].max()})
-        print("\n== Min/Max numeric: baseline vs recent (để phát hiện cột toàn 0/NaN) ==")
-        mm_base = _minmax(base); mm_recent = _minmax(recent)
-        mm = mm_base.join(mm_recent, lsuffix="_base", rsuffix="_recent")
-        print(mm.head(20).to_string())
-
-    # 4) In danh sách cột “core” có NaN trong recent
-    core = [c for c in CORE_NUMERIC_COLS if c in d0.columns]
-    if core:
-        core_recent_nan = recent[core].isna().mean().sort_values(ascending=False)
-        print("\n== CORE columns NaN rate in recent ==")
-        print(core_recent_nan.to_frame("recent_nan_rate").round(3).to_string())
-
 def main():
     print("==> Load data (parquet)")
-    df_raw = load_from_parquet(_DATA_PATH)  # dùng module HCM_temp_forcast.data
+    df_raw = load_from_parquet(_DATA_PATH)
     print(f"Raw shape: {df_raw.shape}")
 
     # Kiểm tra phạm vi thời gian & ngày cuối cùng TRƯỚC khi clean
     _inspect_time_index(df_raw, dt_col="datetime")
 
-    print("==> basic_clean (drop_na_core=True)")
+    print("\n==> basic_clean (drop_na_core=True)")
     df = basic_clean(df_raw, drop_text_cols=True, drop_na_core=True)
     print(f"After clean: {df.shape}")
 
@@ -411,55 +610,68 @@ def main():
     _inspect_time_index(df, dt_col="datetime")
 
     # Báo cáo & assert sạch NaN numeric
-    rep = audit_missing(df, top_k=20)
-    print("Missing report (post-clean):", rep)
+    rep = audit_missing(df, top_k=10)
+    print("\nMissing report (post-clean, top 10):", rep)
     assert_no_nan_numeric(df, exclude=["datetime", "sunrise", "sunset"])
 
-    print("==> time_split_train_test (train+GAP+test)")
+    print("\n==> time_split_train_test (train+GAP+test)")
     train_df, test_df, gap_used = time_split_train_test(
-        df, datetime_col="datetime", train_frac=_TRAIN_FRAC, gap=_GAP
+        df,
+        datetime_col="datetime",
+        train_frac=_TRAIN_FRAC,
+        gap=_GAP
     )
     print(f"Train: {train_df.shape}, Test: {test_df.shape}, GAP={gap_used}")
-    # In ngày cuối train và ngày đầu test để bạn đối chiếu
     if not train_df.empty:
-        print("  Train last date:", pd.to_datetime(train_df["datetime"]).max().date())
+        print("  Train last date:",
+              pd.to_datetime(train_df["datetime"]).max().date())
     if not test_df.empty:
-        print("  Test first date:", pd.to_datetime(test_df["datetime"]).min().date())
+        print("  Test first date:",
+              pd.to_datetime(test_df["datetime"]).min().date())
 
-    print("==> make_direct_datasets_train_test")
-    datasets = make_direct_datasets_train_test(
-        train_df, test_df,
-        horizons=_HORIZONS, lags=_LAGS, roll_windows=_ROLLS
-    )
+    print("\n==> Feature engineering per horizon")
+    y_col = "target_temp_tplus"
 
-    for h in sorted(datasets):
-        Xtr, ytr = datasets[h]["train"]
-        Xte, yte = datasets[h]["test"]
-        nan_tr = int(Xtr.isna().sum().sum() + ytr.isna().sum())
-        nan_te = int(Xte.isna().sum().sum() + yte.isna().sum())
-        print(f"[H{h}] X_tr: {Xtr.shape}, y_tr: {ytr.shape}, X_te: {Xte.shape}, y_te: {yte.shape}, "
-              f"NaN(tr/te)={nan_tr}/{nan_te}, #features={len(datasets[h]['feature_cols'])}")
+    for h in _HORIZONS:
+        print(f"\n---- Horizon H={h} ----")
+        # 1) Chạy FE riêng trên train/test
+        train_fe = feature_engineer_timeseries(
+            train_df,
+            horizon=h,
+            make_target=True,
+            drop_original_astro=True,
+            drop_datetime_cols=True,
+        )
+        test_fe = feature_engineer_timeseries(
+            test_df,
+            horizon=h,
+            make_target=True,
+            drop_original_astro=True,
+            drop_datetime_cols=True,
+        )
 
-    print("OK! File prepare.py test xong — sẵn sàng cho bước tune/train.")
+        print(f"[H{h}] train_fe shape: {train_fe.shape}")
+        print(f"[H{h}] test_fe  shape: {test_fe.shape}")
 
-    print("==> Load data (parquet)")
-    df_raw = load_from_parquet(_DATA_PATH)
-    print(f"Raw shape: {df_raw.shape}")
-    print("Raw last date:", pd.to_datetime(df_raw["datetime"]).max().date())
+        # 2) Kiểm tra NaN/Inf sau FE
+        rep_tr = audit_missing(train_fe, top_k=5)
+        rep_te = audit_missing(test_fe, top_k=5)
+        print(f"[H{h}] Missing train (top 5): {rep_tr['nan']}")
+        print(f"[H{h}] Missing test  (top 5): {rep_te['nan']}")
 
-    print("==> basic_clean (drop_na_core=True)")
-    df = basic_clean(df_raw, drop_text_cols=True, drop_na_core=True)
-    print(f"After clean: {df.shape}")
-    print("Clean last date:", pd.to_datetime(df["datetime"]).max().date())
+        # 3) Build X/y để xem #features thực tế
+        feat_cols, (X_tr, y_tr), (X_te, y_te) = select_feature_frame(
+            train_fe,
+            test_fe,
+            target_col=y_col,
+        )
+        print(
+            f"[H{h}] X_tr: {X_tr.shape}, y_tr: {y_tr.shape}, "
+            f"X_te: {X_te.shape}, y_te: {y_te.shape}, "
+            f"#features={len(feat_cols)}"
+        )
 
-    print("==> Column diagnostics: recent vs baseline")
-    inspect_new_vs_old_columns(
-        df_raw,
-        dt_col="datetime",
-        last_k_days=14,    # cửa sổ “ngày mới” bạn quan tâm
-        baseline_days=60,  # so với 60 ngày trước đó
-        show_top=20
-    )
+    print("\nOK! Feature engineering đã chạy xong cho tất cả horizons.")
 
 
 if __name__ == "__main__":

@@ -180,7 +180,6 @@ def fetch_xlsx_to_df(url: str, save_copy: Optional[Path] = None) -> pd.DataFrame
 
 
 # ----------------- Main -----------------
-
 def incremental_fetch_via_xlsx():
     api_key = _load_api_key()
 

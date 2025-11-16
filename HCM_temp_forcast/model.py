@@ -1,14 +1,15 @@
-# htf/model.py
+# HCM_temp_forcast/model.py
 from __future__ import annotations
 import numpy as np
 import pandas as pd
 from typing import Dict, Tuple, Iterable, List, Optional
 
-from sklearn.base import BaseEstimator, TransformerMixin, clone
+from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 
@@ -22,51 +23,7 @@ except Exception:
     LGBMRegressor = None
 
 
-# ========= 1) DynamicScaler: chọn cột cần scale tự động =========
-class DynamicScaler(BaseEstimator, TransformerMixin):
-    """
-    - Fit: phát hiện cột nhị phân & sin/cos, chỉ scale các cột số còn lại.
-    - Transform: chuẩn hoá các cột đó, giữ nguyên thứ tự & dtype DataFrame.
-    """
-    def __init__(self):
-        self.scale_cols_: List[str] = []
-        self.pass_cols_: List[str] = []
-        self._scaler: Optional[StandardScaler] = None
-
-    def _detect_binary_cols(self, X: pd.DataFrame) -> List[str]:
-        bin_cols = []
-        for c in X.select_dtypes(include=[np.number]).columns:
-            vals = pd.Series(X[c].dropna().unique())
-            if len(vals) > 0 and set(vals.astype(float)) <= {0.0, 1.0}:
-                bin_cols.append(c)
-        return bin_cols
-
-    def _detect_cyc_cols(self, X: pd.DataFrame) -> List[str]:
-        return [c for c in X.columns if c.startswith("sin_") or c.startswith("cos_")]
-
-    def fit(self, X: pd.DataFrame, y=None):
-        X = X.copy()
-        num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
-        bin_cols = self._detect_binary_cols(X)
-        cyc_cols = self._detect_cyc_cols(X)
-        self.pass_cols_  = sorted(set(bin_cols + cyc_cols))
-        self.scale_cols_ = sorted(list(set(num_cols) - set(self.pass_cols_)))
-        self._scaler = StandardScaler()
-        if self.scale_cols_:
-            self._scaler.fit(X[self.scale_cols_].astype("float64"))
-        return self
-
-    def transform(self, X: pd.DataFrame):
-        X = X.copy()
-        if self.scale_cols_:
-            scaled = self._scaler.transform(X[self.scale_cols_].astype("float64"))
-            for j, col in enumerate(self.scale_cols_):
-                X[col] = scaled[:, j]
-        # đảm bảo trả về đúng DataFrame với thứ tự cột ổn định
-        return X[X.columns.sort_values()]
-
-
-# ========= 2) Ứng viên mô hình =========
+# ========= 1) Ứng viên mô hình =========
 def build_model_candidates(random_state: int = 42) -> Dict[str, object]:
     models = {
         "linreg": LinearRegression(),
@@ -90,25 +47,89 @@ def build_model_candidates(random_state: int = 42) -> Dict[str, object]:
     return models
 
 
+# ========= 2) Helper: nhận diện mô hình cây & build pipeline =========
+def _is_tree_model(model) -> bool:
+    tree_like = [RandomForestRegressor, GradientBoostingRegressor]
+    if XGBRegressor is not None:
+        tree_like.append(XGBRegressor)
+    if LGBMRegressor is not None:
+        tree_like.append(LGBMRegressor)
+    return isinstance(model, tuple(tree_like))
 
-# ========= 3) Train KHÔNG CÓ VAL (chọn model bằng walk-forward CV trên TRAIN) =========
-def time_series_cv_mae(X: pd.DataFrame, y: pd.Series, model, n_splits: int = 3, gap: int = 0) -> float:
+
+def _make_pipeline_for_model(
+    model,
+    *,
+    k_features: Optional[int] = None,
+) -> Pipeline:
+    """
+    Pipeline chung cho tất cả model:
+      - Linear / non-tree: StandardScaler -> SelectKBest -> model
+      - Tree-based:        SelectKBest -> model
+    k_features:
+      - None  -> k="all"
+      - int   -> dùng k đó cho SelectKBest
+    """
+    steps = []
+
+    # Linear / distance-based model: scale trước
+    if not _is_tree_model(model):
+        steps.append(("scale", StandardScaler()))
+
+    # Feature selection
+    k = "all" if k_features is None else int(k_features)
+    steps.append(("select", SelectKBest(score_func=f_regression, k=k)))
+
+    # Model
+    steps.append(("model", clone(model)))
+
+    return Pipeline(steps)
+
+
+# ========= 3) Train  =========
+def time_series_cv_mae(
+    X: pd.DataFrame,
+    y: pd.Series,
+    model,
+    n_splits: int = 3,
+    gap: int = 0,
+    *,
+    k_features: Optional[int] = None,
+) -> float:
+    """
+    Walk-forward CV (TimeSeriesSplit) với MAE.
+    Dùng pipeline: (scale nếu cần) -> SelectKBest(k) -> model.
+    """
     tss = TimeSeriesSplit(n_splits=n_splits, gap=gap)
     maes = []
     for tr_idx, va_idx in tss.split(X):
         X_tr, y_tr = X.iloc[tr_idx], y.iloc[tr_idx]
         X_va, y_va = X.iloc[va_idx], y.iloc[va_idx]
-        pipe = Pipeline([("scale", DynamicScaler()), ("model", clone(model))])
+
+        pipe = _make_pipeline_for_model(model, k_features=k_features)
         pipe.fit(X_tr, y_tr)
         pred = pipe.predict(X_va)
         maes.append(mean_absolute_error(y_va, pred))
     return float(np.mean(maes)) if maes else np.inf
 
-def train_direct_models_train_test(datasets: dict, random_state=42, verbose=True, cv_splits=3, cv_gap=0):
+
+def train_direct_models_train_test(
+    datasets: dict,
+    *,
+    random_state: int = 42,
+    verbose: bool = True,
+    cv_splits: int = 3,
+    cv_gap: int = 0,
+    k_features: Optional[int] = None,
+):
     """
     datasets[h] phải có:
       - 'train': (X_train, y_train)
       - 'test' : (X_test,  y_test)
+
+    k_features:
+      - None  -> SelectKBest(k="all") (không giảm chiều)
+      - int   -> chọn top-k feature theo f_regression
     """
     results = {}
     for h, parts in datasets.items():
@@ -118,7 +139,13 @@ def train_direct_models_train_test(datasets: dict, random_state=42, verbose=True
         # chọn model bằng CV trên train
         best_name, best_cv, best_model = None, np.inf, None
         for name, model in build_model_candidates(random_state).items():
-            cv_mae = time_series_cv_mae(X_train, y_train, model, n_splits=cv_splits, gap=cv_gap)
+            cv_mae = time_series_cv_mae(
+                X_train, y_train,
+                model,
+                n_splits=cv_splits,
+                gap=cv_gap,
+                k_features=k_features,
+            )
             if verbose:
                 print(f"[H{h}] {name:6s}  CV MAE={cv_mae:.4f}")
             if cv_mae < best_cv:
@@ -128,7 +155,7 @@ def train_direct_models_train_test(datasets: dict, random_state=42, verbose=True
             print(f"[H{h}] -> Best by CV: {best_name} (CV MAE={best_cv:.4f})")
 
         # refit toàn bộ train, chấm test
-        final_pipe = Pipeline([("scale", DynamicScaler()), ("model", clone(best_model))])
+        final_pipe = _make_pipeline_for_model(best_model, k_features=k_features)
         final_pipe.fit(X_train, y_train)
         pred_test = final_pipe.predict(X_test)
         mae_test  = float(mean_absolute_error(y_test, pred_test))

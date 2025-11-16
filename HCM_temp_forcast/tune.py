@@ -1,4 +1,4 @@
-# htf/tune.py
+# HCM_temp_forcast/tune.py
 from __future__ import annotations
 from typing import Dict, Optional
 import numpy as np
@@ -9,23 +9,53 @@ from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest, f_regression
 
-# Dùng DynamicScaler & danh sách model từ htf.model
-from .model import DynamicScaler, build_model_candidates
+from .model import build_model_candidates
 
 
 # =========================
-# 1) Walk-forward CV (MAE)
+# 1) Pipeline helper
+# =========================
+def _build_pipeline_with_kbest(
+    estimator,
+    model_name: str,
+    k_best: int,
+) -> Pipeline:
+    """
+    - Linear models: StandardScaler -> SelectKBest -> model
+    - Tree/boosting models: SelectKBest -> model (không scale)
+    """
+    linear_models = {"linreg", "ridge", "lasso"}
+
+    steps = []
+    if model_name in linear_models:
+        steps.append(("scale", StandardScaler()))
+        steps.append(("select", SelectKBest(score_func=f_regression, k=k_best)))
+        steps.append(("model", clone(estimator)))
+    else:
+        # rf / gbr / xgb / lgbm: không cần scale
+        steps.append(("select", SelectKBest(score_func=f_regression, k=k_best)))
+        steps.append(("model", clone(estimator)))
+
+    return Pipeline(steps)
+
+
+# =========================
+# 2) Walk-forward CV (MAE)
 # =========================
 def _cv_mae_for_estimator(
     X: pd.DataFrame,
     y: pd.Series,
     estimator,
+    model_name: str,
+    k_best: int,
     n_splits: int = 3,
     gap: int = 0,
 ) -> float:
     """
-    TimeSeriesSplit CV; pipeline: DynamicScaler -> model.
+    TimeSeriesSplit CV; pipeline: (scale nếu cần) -> SelectKBest(k_best) -> model.
     KHÔNG impute: nếu X có NaN, các estimator không hỗ trợ NaN sẽ lỗi.
     """
     tss = TimeSeriesSplit(n_splits=n_splits, gap=gap)
@@ -34,20 +64,26 @@ def _cv_mae_for_estimator(
         X_tr, y_tr = X.iloc[tr_idx], y.iloc[tr_idx]
         X_va, y_va = X.iloc[va_idx], y.iloc[va_idx]
 
-        pipe = Pipeline([
-            ("scale", DynamicScaler()),
-            ("model", clone(estimator)),
-        ])
+        pipe = _build_pipeline_with_kbest(
+            estimator=estimator,
+            model_name=model_name,
+            k_best=k_best,
+        )
         pipe.fit(X_tr, y_tr)
         pred = pipe.predict(X_va)
         maes.append(mean_absolute_error(y_va, pred))
+
     return float(np.mean(maes)) if maes else np.inf
 
 
 # =========================================
-# 2) Build estimator theo trial (search space)
+# 3) Build estimator theo trial (search space)
 # =========================================
-def _build_estimator_from_trial(model_name: str, trial: optuna.Trial, random_state: int = 42):
+def _build_estimator_from_trial(
+    model_name: str,
+    trial: optuna.Trial,
+    random_state: int = 42,
+):
     base = build_model_candidates(random_state=random_state).get(model_name)
     if base is None:
         raise ValueError(f"Model '{model_name}' chưa có trong build_model_candidates().")
@@ -56,6 +92,7 @@ def _build_estimator_from_trial(model_name: str, trial: optuna.Trial, random_sta
     params = {}
 
     if model_name == "linreg":
+        # không có hyperparam quan trọng
         pass
 
     elif model_name == "ridge":
@@ -97,7 +134,6 @@ def _build_estimator_from_trial(model_name: str, trial: optuna.Trial, random_sta
         params["reg_alpha"]         = trial.suggest_float("reg_alpha", 1e-8, 1e-1, log=True)
         params["reg_lambda"]        = trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True)
 
-    # set params an toàn
     valid = est.get_params()
     for k, v in params.items():
         if k in valid:
@@ -106,7 +142,7 @@ def _build_estimator_from_trial(model_name: str, trial: optuna.Trial, random_sta
 
 
 # =======================================================
-# 3) Objective Optuna: MAE (walk-forward CV trên train)
+# 4) Objective Optuna: MAE (walk-forward CV trên train)
 # =======================================================
 def _make_objective_for_model(
     X_train: pd.DataFrame,
@@ -116,16 +152,44 @@ def _make_objective_for_model(
     n_splits: int = 3,
     gap: int = 0,
 ):
+    # Số feature hiện có
+    n_features = X_train.shape[1]
+
+    # Các tỉ lệ k tương đối (10%, 15%, 20%, 25%, 33%, 50%, 75%, 100%)
+    ratio_grid = [0.10, 0.15, 0.20, 0.25, 0.33, 0.50, 0.75, 1.0]
+    candidate_ks = {
+        max(8, min(n_features, int(round(n_features * r))))
+        for r in ratio_grid
+    }
+    candidate_ks.add(n_features)  # chắc chắn có full feature
+    candidate_ks = sorted(candidate_ks)
+
+    # Ví dụ: n_features=165 -> [16, 25, 33, 41, 54, 82, 124, 165]
+
     def objective(trial: optuna.Trial) -> float:
+        # chọn k từ tập rải đều
+        k_best = trial.suggest_categorical("k_best", candidate_ks)
+
+        # build estimator với hyperparams riêng
         est = _build_estimator_from_trial(model_name, trial, random_state=random_state)
-        mae = _cv_mae_for_estimator(X_train, y_train, est, n_splits=n_splits, gap=gap)
+
+        mae = _cv_mae_for_estimator(
+            X_train,
+            y_train,
+            estimator=est,
+            model_name=model_name,
+            k_best=k_best,
+            n_splits=n_splits,
+            gap=gap,
+        )
         trial.set_user_attr("cv_mae", mae)
         return mae
+
     return objective
 
 
 # ===================================================
-# 4) Tune CHO 1 horizon (chạy TẤT CẢ model)
+# 5) Tune CHO 1 horizon (chạy TẤT CẢ model)
 # ===================================================
 def tune_all_models_for_horizon(
     datasets_for_h: dict,
@@ -151,7 +215,6 @@ def tune_all_models_for_horizon(
     results: Dict[str, Dict] = {}
 
     for model_name in build_model_candidates(random_state).keys():
-        # Sampler RIÊNG cho mỗi study; group=False để tránh lỗi multi-studies
         sampler = optuna.samplers.TPESampler(
             consider_prior=True,
             multivariate=True,
@@ -186,12 +249,15 @@ def tune_all_models_for_horizon(
         }
 
     best_model = min(results.items(), key=lambda kv: kv[1]["best_value"])[0]
-    results["_best_overall"] = {"model": best_model, "cv_mae": results[best_model]["best_value"]}
+    results["_best_overall"] = {
+        "model": best_model,
+        "cv_mae": results[best_model]["best_value"]
+    }
     return results
 
 
 # ===================================================
-# 5) Tune CHO NHIỀU horizon
+# 6) Tune CHO NHIỀU horizon
 # ===================================================
 def tune_all_horizons(
     datasets: Dict[int, dict],
@@ -219,232 +285,3 @@ def tune_all_horizons(
         )
         out[h] = res
     return out
-import os
-import time
-import json
-from datetime import date, datetime, timedelta
-from typing import Optional, List
-
-import pandas as pd
-import requests
-
-# ================== CONFIG ==================
-DATA_PATH = "data/weather.parquet"
-LOCATION = "Hanoi"
-UNIT_GROUP = "metric"          # metric / us
-INCLUDE = "days"               # 'days' or 'hours'
-YEARS_BACK_IF_BOOTSTRAP = 10   # nếu chưa có file parquet, fetch 10 năm gần nhất
-MAX_RETRIES = 3
-TIMEOUT_SEC = 60
-
-# Chọn cột cần lấy để tiết kiệm băng thông/quota
-ELEMENTS_DAILY = (
-    "datetime,temp,humidity,dew,cloudcover,windspeed,"
-    "sealevelpressure,precip,preciptype,precipprob,"
-    "solarradiation,solarenergy,uvindex,sunrise,sunset,"
-    "conditions,icon,description,stations"
-)
-
-BASE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
-API_KEY = os.getenv("VC_API_KEY")  # <-- đặt VC_API_KEY trong env
-# ============================================
-
-
-def _request_interval(location: str,
-                      start: str,
-                      end: str,
-                      include: str = "days",
-                      elements: Optional[str] = None,
-                      unit_group: str = "metric",
-                      api_key: Optional[str] = None,
-                      content: str = "json",
-                      retries: int = MAX_RETRIES,
-                      timeout: int = TIMEOUT_SEC) -> pd.DataFrame:
-    """Gọi 1 khoảng thời gian [start, end] và trả về DataFrame đã chuẩn hoá."""
-    if not api_key:
-        raise RuntimeError("Missing API key. Set VC_API_KEY environment variable.")
-
-    params = {
-        "unitGroup": unit_group,
-        "include": include,
-        "key": api_key,
-        "contentType": content,
-        "timezone": "auto",
-    }
-    if elements:
-        params["elements"] = elements
-
-    url = f"{BASE_URL}/{location}/{start}/{end}"
-
-    last_err = None
-    for i in range(retries):
-        try:
-            r = requests.get(url, params=params, timeout=timeout)
-            if r.status_code == 200:
-                if content == "json":
-                    js = r.json()
-                    key = "days" if include == "days" else "hours"
-                    df = pd.json_normalize(js.get(key, []))
-                elif content == "csv":
-                    from io import StringIO
-                    df = pd.read_csv(StringIO(r.text))
-                else:
-                    import io
-                    df = pd.read_excel(io.BytesIO(r.content))
-
-                # chuẩn hoá cột
-                df.columns = [str(c).strip().lower() for c in df.columns]
-                if "datetime" in df.columns:
-                    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-                return df
-            elif r.status_code in (429, 500, 502, 503):
-                # backoff
-                sleep_s = 2 ** i
-                print(f"[Retryable {r.status_code}] {r.text[:120]}... -> sleep {sleep_s}s & retry")
-                time.sleep(sleep_s)
-                continue
-            else:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
-        except Exception as e:
-            last_err = e
-            sleep_s = 2 ** i
-            print(f"[Exception] {e} -> sleep {sleep_s}s & retry")
-            time.sleep(sleep_s)
-
-    raise RuntimeError(f"Max retries exceeded. Last error: {last_err}")
-
-
-def _year_chunks(start_date: date, end_date: date) -> List[tuple]:
-    """Chia [start_date, end_date] thành các đoạn theo năm (YYYY-01-01 .. YYYY-12-31)."""
-    chunks = []
-    cur = date(start_date.year, 1, 1)
-    # bắt đầu tại đầu năm chứa start_date
-    if start_date > cur:
-        cur = start_date
-
-    while cur <= end_date:
-        end_of_year = date(cur.year, 12, 31)
-        seg_end = min(end_of_year, end_date)
-        chunks.append((cur, seg_end))
-        cur = seg_end + timedelta(days=1)
-    return chunks
-
-
-def _load_existing_parquet(path: str) -> Optional[pd.DataFrame]:
-    if not os.path.exists(path):
-        return None
-    df = pd.read_parquet(path)
-    # normalize
-    df.columns = [str(c).strip().lower() for c in df.columns]
-    if "datetime" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["datetime"]):
-        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-    return df
-
-
-def _bootstrap_start_date(today: date, years_back: int) -> date:
-    try:
-        return date(today.year - years_back, today.month, today.day)
-    except Exception:
-        # fallback nếu ngày không hợp lệ (29/2,…): quay về 1/1
-        return date(today.year - years_back, 1, 1)
-
-
-def incremental_fetch(location: str,
-                      parquet_path: str,
-                      include: str = "days",
-                      elements: Optional[str] = None,
-                      unit_group: str = "metric",
-                      api_key: Optional[str] = None):
-    """Main incremental flow."""
-    os.makedirs(os.path.dirname(parquet_path), exist_ok=True)
-
-    existing = _load_existing_parquet(parquet_path)
-    today = date.today()
-
-    if existing is None or existing.empty or "datetime" not in existing.columns:
-        # bootstrap
-        start = _bootstrap_start_date(today, YEARS_BACK_IF_BOOTSTRAP)
-        print(f"[Bootstrap] No parquet found → fetching from {start} to {today}")
-    else:
-        last_dt = pd.to_datetime(existing["datetime"], errors="coerce").max()
-        if pd.isna(last_dt):
-            start = _bootstrap_start_date(today, YEARS_BACK_IF_BOOTSTRAP)
-            print(f"[Bootstrap] Invalid last datetime → fetching from {start} to {today}")
-        else:
-            start = (last_dt.date() + timedelta(days=1))
-            if start > today:
-                print("[Info] Already up to date. Nothing to fetch.")
-                return
-            print(f"[Incremental] Fetching from {start} to {today}")
-
-    # fetch theo từng năm
-    chunks = _year_chunks(start, today)
-    fetched = []
-    for s, e in chunks:
-        print(f"  - {s} → {e}")
-        df = _request_interval(
-            location=location,
-            start=s.isoformat(),
-            end=e.isoformat(),
-            include=include,
-            elements=elements,
-            unit_group=unit_group,
-            api_key=api_key,
-            content="json",
-        )
-        if not df.empty:
-            fetched.append(df)
-
-    if not fetched:
-        print("[Info] No new data returned.")
-        return
-
-    new_df = pd.concat(fetched, ignore_index=True)
-    # Chuẩn hoá datetime
-    if "datetime" in new_df.columns:
-        new_df["datetime"] = pd.to_datetime(new_df["datetime"], errors="coerce")
-
-    # Gộp với existing
-    if existing is not None and not existing.empty:
-        all_df = pd.concat([existing, new_df], ignore_index=True)
-    else:
-        all_df = new_df
-
-    # Khử trùng lặp & sort
-    if "datetime" not in all_df.columns:
-        raise ValueError("API response missing 'datetime' column.")
-    before = len(all_df)
-    all_df = (
-        all_df
-        .drop_duplicates(subset=["datetime"])
-        .sort_values("datetime")
-        .reset_index(drop=True)
-    )
-    after = len(all_df)
-    print(f"[Save] Rows before dedup={before}, after={after}")
-
-    # Lưu parquet
-    all_df.to_parquet(parquet_path, index=False)
-    print(f"[OK] Saved → {parquet_path}. Range: {all_df['datetime'].min().date()} .. {all_df['datetime'].max().date()}")
-
-
-def main():
-    print("== Visual Crossing incremental fetch ==")
-    print(f"DATA_PATH  : {DATA_PATH}")
-    print(f"LOCATION   : {LOCATION}")
-    print(f"INCLUDE    : {INCLUDE}")
-    print(f"UNIT_GROUP : {UNIT_GROUP}")
-
-    elements = ELEMENTS_DAILY if INCLUDE == "days" else None  # tự chọn elements theo include
-    incremental_fetch(
-        location=LOCATION,
-        parquet_path=DATA_PATH,
-        include=INCLUDE,
-        elements=elements,
-        unit_group=UNIT_GROUP,
-        api_key=API_KEY,
-    )
-
-
-if __name__ == "__main__":
-    main()

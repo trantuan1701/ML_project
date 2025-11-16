@@ -20,7 +20,7 @@ from HCM_temp_forcast.prepare import (
 
 # ==== CONFIG (giống tune.py càng nhiều càng tốt) ====
 DATA_PATH  = "data/weather.parquet"
-TRAIN_FRAC = 0.10
+TRAIN_FRAC = 0.60
 GAP_LMAX   = 30
 HORIZONS   = (1, 2, 3, 4, 5)
 DATE_COL   = "datetime"
@@ -131,7 +131,7 @@ def main():
 
         # Rolling MAE (ví dụ 30 ngày)
         df_eval["mae_roll_30"] = (
-            df_eval["abs_err"].rolling(window=90, min_periods=10).mean()
+            df_eval["abs_err"].rolling(window=30, min_periods=10).mean()
         )
 
         results_per_h[h] = df_eval

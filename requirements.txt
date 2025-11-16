@@ -27,6 +27,6 @@ matplotlib>=3.8
 onnx>=1.16
 onnxruntime>=1.18
 skl2onnx>=1.17
-
+onnxmltools
 # (tuỳ chọn) tăng tốc chuyển đổi cây sang ONNX/Torch
-# hummingbird-ml>=0.4.9
+hummingbird-ml>=0.4.9

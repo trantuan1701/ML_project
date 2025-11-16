@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dự báo nhiệt độ TP.HCM — 5 ngày tiếp theo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/main.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- PAGE 1: LANDING -->
+    <section id="landing-screen" class="screen screen-landing">
+      <video class="bg-video" autoplay muted loop playsinline>
+        <!-- Video nền page 1 -->
+        <source src="/static/background.mp4" type="video/mp4" />
+      </video>
+      <div class="landing-overlay">
+        <div class="landing-top-row">
+          <div class="logo-pill">Machine Learning - nhóm 5</div>
+          <div class="mini-pill">Demo</div>
+        </div>
+        <div class="landing-content">
+          <h1>🌤️ Dự báo nhiệt độ<br />thành phố Hồ Chí Minh</h1>
+          <button id="start-btn" class="btn-primary">
+            Dự báo nhiệt độ 5 ngày tới
+          </button>
+          <div id="landing-status" class="landing-status"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 2: FORECAST -->
+    <section id="forecast-screen" class="screen screen-forecast hidden">
+      <!-- Video nền page 2: dùng lại background.mp4 -->
+      <video class="bg-video-forecast" autoplay muted loop playsinline>
+        <source src="/static/background.mp4" type="video/mp4" />
+      </video>
+
+      <div class="forecast-overlay">
+        <div class="page">
+          <header class="forecast-header">
+            <button id="back-btn" class="btn-ghost">← Trang đầu</button>
+
+            <div class="date-block">
+              <label for="date-input">Ngày gốc</label>
+              <div class="date-row">
+                <input id="date-input" type="date" />
+                <button id="forecast-btn" class="btn-secondary">
+                  Dự báo ngày này
+                </button>
+              </div>
+            </div>
+
+            <div class="forecast-title-block">
+              <div class="forecast-title">
+                🌤️ Dự báo 5 ngày tới — TP.HCM
+              </div>
+              <div id="forecast-status" class="forecast-status"></div>
+            </div>
+
+            <div class="badge">t+1 → t+5</div>
+          </header>
+
+          <div class="forecast-meta">
+            <div id="forecast-range" class="forecast-range"></div>
+          </div>
+
+          <!-- Các thẻ dự báo -->
+          <div id="cards-container" class="cards-container"></div>
+
+          <!-- Ảnh skyline ở đáy panel trắng -->
+          <div class="city-image-wrapper">
+            <img src="/static/hcmc-skyline.jpg" alt="Ho Chi Minh City skyline" />
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/main.js" defer></script>
+</body>
+</html>

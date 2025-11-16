@@ -16,7 +16,7 @@ except Exception:
 
 # ================== CONFIG ==================
 DATA_PATH    = "data/weather.parquet"
-ARTIFACT_DIR = "artifacts_114"     # khớp với scripts/tune.py mới
+ARTIFACT_DIR = "artifacts_113"     
 HORIZONS     = (1, 2, 3, 4, 5)
 DATE_COL     = "datetime"
 TRUTH_COL    = "temp"

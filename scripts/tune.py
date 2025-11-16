@@ -17,10 +17,10 @@ HORIZONS   = (1, 2, 3, 4, 5)
 CV_SPLITS  = 3
 N_TRIALS   = 50
 OPTUNA_STORAGE = "sqlite:///optuna.db"
-STUDY_PREFIX   = "hcm-daily-final-v12-114-features"
-SAVE_JSON      = "tune_results_114.json"
+STUDY_PREFIX   = "hcm-daily-final-v2-113-features"
+SAVE_JSON      = "tune_results_113.json"
 RETRAIN_BEST   = True
-ARTIFACT_DIR   = "artifacts_114"
+ARTIFACT_DIR   = "artifacts_113"
 
 from HCM_temp_forcast.data import load_from_parquet
 from HCM_temp_forcast.prepare import basic_clean, time_split_train_test, make_direct_datasets_train_test

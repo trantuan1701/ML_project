@@ -1,0 +1,412 @@
+{
+  "1": {
+    "linreg": {
+      "best_value": 0.6122066374641933,
+      "best_params": {
+        "k_best": 37
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-linreg"
+    },
+    "ridge": {
+      "best_value": 0.6104818414566858,
+      "best_params": {
+        "k_best": 37,
+        "alpha": 9.925489882780374
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-ridge"
+    },
+    "lasso": {
+      "best_value": 0.6019468143107131,
+      "best_params": {
+        "k_best": 113,
+        "alpha": 0.012772401715285282,
+        "max_iter": 5000
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-lasso"
+    },
+    "rf": {
+      "best_value": 0.6074234478585744,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 1000,
+        "max_depth": 9,
+        "min_samples_split": 2,
+        "min_samples_leaf": 8
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-rf"
+    },
+    "gbr": {
+      "best_value": 0.6020174564651626,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 300,
+        "learning_rate": 0.017771573734854364,
+        "max_depth": 3,
+        "subsample": 0.7598190557900014,
+        "min_samples_leaf": 13
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-gbr"
+    },
+    "xgb": {
+      "best_value": 0.600441353355453,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 800,
+        "learning_rate": 0.007342542807110498,
+        "max_depth": 4,
+        "subsample": 0.6010729330098094,
+        "colsample_bytree": 0.6525057916278201,
+        "reg_alpha": 1.5636939839226847e-05,
+        "reg_lambda": 0.26226384837810424
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-xgb"
+    },
+    "lgbm": {
+      "best_value": 0.6118038060237156,
+      "best_params": {
+        "k_best": 28,
+        "n_estimators": 1800,
+        "learning_rate": 0.0029129393338539473,
+        "num_leaves": 214,
+        "max_depth": 3,
+        "subsample": 0.6391686706406166,
+        "colsample_bytree": 0.9031167336981136,
+        "reg_alpha": 4.5843639076420105e-06,
+        "reg_lambda": 1.0831334264352326
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H1-lgbm"
+    },
+    "_best_overall": {
+      "model": "xgb",
+      "cv_mae": 0.600441353355453
+    }
+  },
+  "2": {
+    "linreg": {
+      "best_value": 0.7589701402929804,
+      "best_params": {
+        "k_best": 28
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-linreg"
+    },
+    "ridge": {
+      "best_value": 0.758380045393572,
+      "best_params": {
+        "k_best": 28,
+        "alpha": 5.940176807459289
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-ridge"
+    },
+    "lasso": {
+      "best_value": 0.7516834425568856,
+      "best_params": {
+        "k_best": 113,
+        "alpha": 0.03333402695350103,
+        "max_iter": 20000
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-lasso"
+    },
+    "rf": {
+      "best_value": 0.7526477704543142,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 400,
+        "max_depth": 15,
+        "min_samples_split": 2,
+        "min_samples_leaf": 7
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-rf"
+    },
+    "gbr": {
+      "best_value": 0.7525917527997347,
+      "best_params": {
+        "k_best": 56,
+        "n_estimators": 800,
+        "learning_rate": 0.005238060873012449,
+        "max_depth": 3,
+        "subsample": 0.5385555177129351,
+        "min_samples_leaf": 17
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-gbr"
+    },
+    "xgb": {
+      "best_value": 0.7543349363927218,
+      "best_params": {
+        "k_best": 85,
+        "n_estimators": 1000,
+        "learning_rate": 0.003293788527838464,
+        "max_depth": 3,
+        "subsample": 0.8203774687269662,
+        "colsample_bytree": 0.600868727576936,
+        "reg_alpha": 0.003928381051886922,
+        "reg_lambda": 0.014662534229780193
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-xgb"
+    },
+    "lgbm": {
+      "best_value": 0.7529186719244317,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 2500,
+        "learning_rate": 0.001344276831212846,
+        "num_leaves": 246,
+        "max_depth": 3,
+        "subsample": 0.9479637002022021,
+        "colsample_bytree": 0.6458495012384526,
+        "reg_alpha": 2.477824725884555e-08,
+        "reg_lambda": 1.4036559174982415
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H2-lgbm"
+    },
+    "_best_overall": {
+      "model": "lasso",
+      "cv_mae": 0.7516834425568856
+    }
+  },
+  "3": {
+    "linreg": {
+      "best_value": 0.807408781387904,
+      "best_params": {
+        "k_best": 23
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-linreg"
+    },
+    "ridge": {
+      "best_value": 0.8023660882814369,
+      "best_params": {
+        "k_best": 56,
+        "alpha": 9.92485108429682
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-ridge"
+    },
+    "lasso": {
+      "best_value": 0.7962068808948671,
+      "best_params": {
+        "k_best": 113,
+        "alpha": 0.029825480289373058,
+        "max_iter": 10000
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-lasso"
+    },
+    "rf": {
+      "best_value": 0.8094713205973466,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 1200,
+        "max_depth": 5,
+        "min_samples_split": 10,
+        "min_samples_leaf": 2
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-rf"
+    },
+    "gbr": {
+      "best_value": 0.800571658966299,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 800,
+        "learning_rate": 0.005029061041730871,
+        "max_depth": 2,
+        "subsample": 0.5100045823489063,
+        "min_samples_leaf": 16
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-gbr"
+    },
+    "xgb": {
+      "best_value": 0.8026351642001207,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 800,
+        "learning_rate": 0.004035612853223237,
+        "max_depth": 3,
+        "subsample": 0.7995082998156242,
+        "colsample_bytree": 0.7593183031994931,
+        "reg_alpha": 1.960087968445416e-07,
+        "reg_lambda": 0.004298843663343563
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-xgb"
+    },
+    "lgbm": {
+      "best_value": 0.8097426766239124,
+      "best_params": {
+        "k_best": 28,
+        "n_estimators": 1800,
+        "learning_rate": 0.003109062978722687,
+        "num_leaves": 133,
+        "max_depth": 3,
+        "subsample": 0.5641223548211526,
+        "colsample_bytree": 0.6812862898640464,
+        "reg_alpha": 0.0857188348679618,
+        "reg_lambda": 7.973790972147974
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H3-lgbm"
+    },
+    "_best_overall": {
+      "model": "lasso",
+      "cv_mae": 0.7962068808948671
+    }
+  },
+  "4": {
+    "linreg": {
+      "best_value": 0.8330785079827839,
+      "best_params": {
+        "k_best": 23
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-linreg"
+    },
+    "ridge": {
+      "best_value": 0.8285684922933837,
+      "best_params": {
+        "k_best": 56,
+        "alpha": 9.92485108429682
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-ridge"
+    },
+    "lasso": {
+      "best_value": 0.8228953270024606,
+      "best_params": {
+        "k_best": 56,
+        "alpha": 0.011400171816858306,
+        "max_iter": 10000
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-lasso"
+    },
+    "rf": {
+      "best_value": 0.8372250212868937,
+      "best_params": {
+        "k_best": 85,
+        "n_estimators": 300,
+        "max_depth": 3,
+        "min_samples_split": 5,
+        "min_samples_leaf": 3
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-rf"
+    },
+    "gbr": {
+      "best_value": 0.8206317201390326,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 700,
+        "learning_rate": 0.005773841482964488,
+        "max_depth": 2,
+        "subsample": 0.5206457727876218,
+        "min_samples_leaf": 12
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-gbr"
+    },
+    "xgb": {
+      "best_value": 0.82150560221095,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 500,
+        "learning_rate": 0.005893890063289579,
+        "max_depth": 3,
+        "subsample": 0.515754997419733,
+        "colsample_bytree": 0.7382532201226119,
+        "reg_alpha": 0.00036000329783155175,
+        "reg_lambda": 0.013057429811622102
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-xgb"
+    },
+    "lgbm": {
+      "best_value": 0.8188927372500879,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 1500,
+        "learning_rate": 0.0038049729970426878,
+        "num_leaves": 113,
+        "max_depth": 2,
+        "subsample": 0.5976271354643347,
+        "colsample_bytree": 0.5687730849981022,
+        "reg_alpha": 0.045810055457626585,
+        "reg_lambda": 1.12140130660301
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H4-lgbm"
+    },
+    "_best_overall": {
+      "model": "lgbm",
+      "cv_mae": 0.8188927372500879
+    }
+  },
+  "5": {
+    "linreg": {
+      "best_value": 0.8584493077252636,
+      "best_params": {
+        "k_best": 23
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-linreg"
+    },
+    "ridge": {
+      "best_value": 0.8584495279383736,
+      "best_params": {
+        "k_best": 23,
+        "alpha": 0.001002676795799653
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-ridge"
+    },
+    "lasso": {
+      "best_value": 0.8470190985638572,
+      "best_params": {
+        "k_best": 113,
+        "alpha": 0.033090808179204,
+        "max_iter": 15000
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-lasso"
+    },
+    "rf": {
+      "best_value": 0.8484573765513271,
+      "best_params": {
+        "k_best": 113,
+        "n_estimators": 500,
+        "max_depth": 4,
+        "min_samples_split": 10,
+        "min_samples_leaf": 10
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-rf"
+    },
+    "gbr": {
+      "best_value": 0.8348421931235589,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 700,
+        "learning_rate": 0.005150041043207518,
+        "max_depth": 2,
+        "subsample": 0.5908651090392227,
+        "min_samples_leaf": 17
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-gbr"
+    },
+    "xgb": {
+      "best_value": 0.8376669360118307,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 800,
+        "learning_rate": 0.005076734398297609,
+        "max_depth": 3,
+        "subsample": 0.8047821669899484,
+        "colsample_bytree": 0.7513395116144308,
+        "reg_alpha": 2.292721263269561e-08,
+        "reg_lambda": 0.01301924671436158
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-xgb"
+    },
+    "lgbm": {
+      "best_value": 0.8380248536774607,
+      "best_params": {
+        "k_best": 37,
+        "n_estimators": 2300,
+        "learning_rate": 0.0013555757140975477,
+        "num_leaves": 228,
+        "max_depth": 3,
+        "subsample": 0.9908625569199344,
+        "colsample_bytree": 0.7945334658852418,
+        "reg_alpha": 1.7829695411805247e-08,
+        "reg_lambda": 0.22066068413938073
+      },
+      "study_name": "hcm-daily-final-v2-113-features-H5-lgbm"
+    },
+    "_best_overall": {
+      "model": "gbr",
+      "cv_mae": 0.8348421931235589
+    }
+  }
+}

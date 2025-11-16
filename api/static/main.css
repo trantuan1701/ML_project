@@ -1,0 +1,414 @@
+:root {
+  --bg: #020617;
+  --card-bg: #ffffff;
+  --primary: #0ea5e9;
+  --primary-dark: #0284c7;
+  --border: #e2e8f0;
+  --text-main: #0f172a;
+  --text-sub: #64748b;
+  --radius-lg: 22px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden; /* KHÔNG scroll trang */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+}
+
+.screen {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none;
+}
+
+/* ===== PAGE 1: LANDING (NHƯ CŨ) ===== */
+
+.screen-landing {
+  position: relative;
+  color: #f9fafb;
+}
+
+.bg-video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.7);
+  z-index: -2;
+}
+
+.landing-overlay {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.35), transparent 40%),
+              linear-gradient(to top right, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.7));
+  padding: 24px 24px 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo-pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  font-size: 13px;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.mini-pill {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.landing-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 640px;
+  gap: 16px;
+}
+
+.landing-content h1 {
+  font-size: clamp(32px, 5vw, 42px);
+  line-height: 1.1;
+  margin: 0;
+  font-weight: 800;
+}
+
+.btn-primary {
+  border: none;
+  cursor: pointer;
+  padding: 14px 28px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 16px 40px rgba(56, 189, 248, 0.6);
+  white-space: nowrap;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.landing-status {
+  font-size: 13px;
+  min-height: 18px;
+  color: #e5e7eb;
+}
+
+.landing-status.error {
+  color: #fecaca;
+}
+
+.landing-status.success {
+  color: #bbf7d0;
+}
+
+/* ===== PAGE 2: FORECAST ===== */
+
+.screen-forecast {
+  position: relative;
+}
+
+/* Video nền page 2: dùng lại background.mp4 */
+.bg-video-forecast {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.65);
+  z-index: -2;
+}
+
+.forecast-overlay {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.25), transparent 45%),
+              linear-gradient(to top right, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.75));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Panel trắng trung tâm */
+.page {
+  width: 100%;
+  max-width: 1100px;              /* rộng hơn một chút để card to hơn */
+  height: calc(100% - 40px);
+  margin: 20px;
+  background: #ffffff;            /* TRẮNG THUẦN để trùng màu với ảnh skyline */
+  border-radius: 26px;
+  padding: 18px 24px 18px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.28);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* HEADER PAGE 2 */
+
+.forecast-header {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.btn-ghost {
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-sub);
+}
+
+.btn-ghost:hover {
+  background: #e5e7eb;
+}
+
+.date-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.date-block label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-row input {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  outline: none;
+  background: #f9fafb;
+}
+
+.date-row input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.4);
+}
+
+.btn-secondary {
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-sub);
+}
+
+.btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+.forecast-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.forecast-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.forecast-status {
+  font-size: 13px;
+  color: var(--text-sub);
+  min-height: 16px;
+}
+
+.forecast-status.error {
+  color: #fecaca;
+}
+
+.forecast-status.success {
+  color: #16a34a;
+}
+
+.badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: var(--text-main);
+}
+
+/* META */
+
+.forecast-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.forecast-range {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+/* CARDS — TO HƠN, CĂN GIỮA */
+
+.cards-container {
+  margin-top: 8px;
+  flex: 1;
+  overflow: auto; /* chỉ phần card scroll nếu cần */
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(170px, 1fr)); /* min-width card lớn hơn */
+  gap: 24px;
+  justify-items: center; /* căn giữa card trong cột */
+}
+
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  padding: 22px 22px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  text-align: center;
+  min-width: 170px;
+}
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 14px;
+  color: var(--text-sub);
+}
+
+.card-temp {
+  font-size: 40px;      /* NHIỆT ĐỘ TO HƠN */
+  font-weight: 800;
+  margin-top: 6px;
+  color: var(--text-main);
+}
+
+.card-row {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.card-row span:last-child {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-top: 6px;
+}
+
+/* ẢNH SKYLINE Ở ĐÁY PANEL */
+
+.city-image-wrapper {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  background: #ffffff;  /* cùng màu với panel để không bị lệch */
+}
+
+.city-image-wrapper img {
+  width: 80%;           /* to hơn */
+  max-width: 720px;
+  height: auto;
+  display: block;
+}
+
+/* Responsive nhẹ */
+
+@media (max-width: 1100px) {
+  .cards-grid {
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .cards-grid {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+
+  .forecast-header {
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+  }
+}
